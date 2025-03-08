@@ -1,0 +1,38 @@
+{
+  "shortcuts": [
+    {
+      "shortcut": "@vvc",
+      "url": "https://mail.google.com"
+    },
+    {
+      "shortcut": "@scratch",
+      "url": "https://scratch.mit.edu/projects/editor/"
+    },
+    {
+      "shortcut": "@clever",
+      "url": "https://clever.com/in/jerseycity/student/portal"
+    },
+    {
+      "shortcut": "@evil",
+      "url": "https://mail.google.com/mail/u/2/#inbox"
+    },
+    {
+      "shortcut": "@hs",
+      "url": "https://mail.google.com/mail/u/5/#inbox"
+    },
+    {
+      "shortcut": "@over",
+      "url": "https://mail.google.com/mail/u/1/#inbox"
+    },
+    {
+      "shortcut": "@imp",   
+      "url": "https://mail.google.com/mail/u/6/"
+    },
+    {
+      "shortcut": "@243",
+      "url": "https://mail.google.com/mail/u/3/#inbox"
+    }
+  ]
+}
+
+

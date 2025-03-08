@@ -1,0 +1,25 @@
+{
+  "name": "VVC Gmail Redirect",
+  "version": "1.0",
+  "description": "Redirects to Gmail when @vvc is typed in the search bar",
+  "manifest_version": 3,
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "omnibox": {
+    "keyword": "@"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["shortcuts.json"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
