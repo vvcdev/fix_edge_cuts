@@ -8,7 +8,12 @@
   },
   "permissions": [
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "webRequest",
+    "webRequestBlocking",
+    "storage",
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -16,6 +21,13 @@
   "omnibox": {
     "keyword": "@"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": ["shortcuts.json"],
