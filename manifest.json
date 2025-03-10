@@ -1,19 +1,14 @@
 {
   "name": "VVC Gmail Redirect",
   "version": "1.0",
-  "description": "Redirects to Gmail when @vvc is typed in the search bar",
+  "description": "Redirects to Gmail when @vvc is typed in the address bar",
   "manifest_version": 3,
   "background": {
     "service_worker": "background.js"
   },
   "permissions": [
     "tabs",
-    "webNavigation",
-    "webRequest",
-    "webRequestBlocking",
-    "storage",
-    "activeTab",
-    "scripting"
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -21,13 +16,6 @@
   "omnibox": {
     "keyword": "@"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_start"
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": ["shortcuts.json"],
