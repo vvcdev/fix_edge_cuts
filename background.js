@@ -15,7 +15,7 @@ fetch(chrome.runtime.getURL('shortcuts.json'))
   });
 
 function setupListeners() {
-  // Handle omnibox input
+  // Handle omnibox input - this is the address bar with the @ keyword
   chrome.omnibox.onInputEntered.addListener(function(text) {
     handleShortcut(text);
   });
@@ -38,35 +38,20 @@ function setupListeners() {
     suggest(filteredSuggestions);
   });
 
-  // Monitor all navigation attempts
+  // Monitor address bar navigation attempts specifically
   chrome.webNavigation.onBeforeNavigate.addListener(function(details) {
-    checkAndRedirect(details.url, details.tabId);
-  });
-  
-  // Additional listeners to ensure we catch all navigation events
-  chrome.webNavigation.onCommitted.addListener(function(details) {
-    checkAndRedirect(details.url, details.tabId);
-  });
-  
-  // Monitor address bar changes even when not navigating
-  chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
-    if (changeInfo.url) {
-      checkAndRedirect(changeInfo.url, tabId);
+    // Only check the main frame navigations (address bar)
+    if (details.frameId === 0) {
+      checkAndRedirect(details.url, details.tabId);
     }
   });
   
-  // Monitor all web requests
-  chrome.webRequest && chrome.webRequest.onBeforeRequest.addListener(
-    function(details) {
-      const result = checkAndRedirectWithReturn(details.url);
-      if (result.redirect) {
-        return {redirectUrl: result.url};
-      }
-      return {};
-    },
-    {urls: ["<all_urls>"]},
-    ["blocking"]
-  );
+  // Monitor URL changes in the address bar
+  chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+    if (changeInfo.url) {
+      checkAddressBarShortcut(changeInfo.url, tabId);
+    }
+  });
 }
 
 // Function to handle shortcut text and navigate accordingly
@@ -108,14 +93,39 @@ function handleShortcut(text) {
   return false;
 }
 
-// Check URL for shortcuts and redirect if found
-function checkAndRedirect(url, tabId) {
+// Check if the URL was entered in the address bar with a shortcut
+function checkAddressBarShortcut(url, tabId) {
+  // Check if this looks like a search or direct shortcut entry
+  // This helps identify address bar inputs rather than links clicked within pages
   if (!url) return false;
   
-  const decodedUrl = decodeURIComponent(url.toLowerCase());
+  const urlObj = new URL(url);
   
-  // Check if the URL contains any of our shortcuts
+  // Check for search engine URLs with our shortcut in the query
+  const isSearch = (
+    (urlObj.hostname.includes('google.com') && urlObj.pathname.includes('/search')) ||
+    (urlObj.hostname.includes('bing.com') && urlObj.pathname.includes('/search')) ||
+    urlObj.hostname.includes('duckduckgo.com')
+  );
+  
+  if (isSearch) {
+    const query = urlObj.searchParams.get('q') || '';
+    
+    // Check if the search query contains any of our shortcuts
+    for (const shortcut of shortcuts) {
+      if (query.toLowerCase().includes(shortcut.shortcut)) {
+        chrome.tabs.update(tabId, { url: shortcut.url });
+        return true;
+      }
+    }
+  }
+  
+  // Check for direct entry of shortcuts in the address bar
+  // (This might look like a navigation to "@vvc" as hostname)
+  const decodedUrl = decodeURIComponent(url.toLowerCase());
   for (const shortcut of shortcuts) {
+    // Check if it's a direct entry (address starts with the shortcut)
+    // Or if it's part of the path/search parameters
     if (decodedUrl.includes(shortcut.shortcut)) {
       chrome.tabs.update(tabId, { url: shortcut.url });
       return true;
@@ -125,27 +135,7 @@ function checkAndRedirect(url, tabId) {
   return false;
 }
 
-// Version that returns the redirect info instead of performing it
-function checkAndRedirectWithReturn(url) {
-  if (!url) return {redirect: false};
-  
-  const decodedUrl = decodeURIComponent(url.toLowerCase());
-  
-  // Check if the URL contains any of our shortcuts
-  for (const shortcut of shortcuts) {
-    if (decodedUrl.includes(shortcut.shortcut)) {
-      return {redirect: true, url: shortcut.url};
-    }
-  }
-  
-  return {redirect: false};
+// Check URL for shortcuts and redirect if found
+function checkAndRedirect(url, tabId) {
+  return checkAddressBarShortcut(url, tabId);
 }
-
-// Listen for messages from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "checkShortcut") {
-    const result = handleShortcut(message.text);
-    sendResponse({success: result});
-    return true;
-  }
-});
