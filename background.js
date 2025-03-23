@@ -1,13 +1,26 @@
-// Store shortcuts in memory
+// Store shortcuts in memory with fast lookup structures
 let shortcuts = [];
+let shortcutsMap = new Map(); // For fast exact lookups
+let shortcutsWithoutAtMap = new Map(); // For lookups without @ symbol
 let defaultKeyword = "";
+let defaultUrl = "";
 
 // Load shortcuts from the configuration file
 fetch(chrome.runtime.getURL('shortcuts.json'))
   .then(response => response.json())
   .then(data => {
     shortcuts = data.shortcuts;
-    defaultKeyword = shortcuts.length > 0 ? shortcuts[0].shortcut.slice(1) : "vvc"; // Remove @ symbol
+    
+    // Create optimized lookup maps
+    shortcuts.forEach(shortcut => {
+      shortcutsMap.set(shortcut.shortcut, shortcut.url);
+      shortcutsWithoutAtMap.set(shortcut.shortcut.slice(1), shortcut.url);
+    });
+    
+    // Cache default values
+    defaultKeyword = shortcuts.length > 0 ? shortcuts[0].shortcut.slice(1) : "vvc";
+    defaultUrl = shortcuts.length > 0 ? shortcuts[0].url : "";
+    
     setupListeners();
   })
   .catch(error => {
@@ -20,27 +33,26 @@ function setupListeners() {
     handleShortcut(text);
   });
 
-  // Handle suggestions in the omnibox
+  // Handle suggestions in the omnibox with pre-computed data
   chrome.omnibox.onInputChanged.addListener((text, suggest) => {
-    const suggestions = shortcuts.map(shortcut => {
-      const shortcutWithoutAt = shortcut.shortcut.slice(1); // Remove @ symbol
-      return {
-        content: shortcutWithoutAt,
-        description: `Go to: ${shortcut.url} (${shortcut.shortcut})`
-      };
+    const suggestions = [];
+    
+    // Only prepare filtered suggestions
+    shortcuts.forEach(shortcut => {
+      const shortcutWithoutAt = shortcut.shortcut.slice(1);
+      if (!text || shortcutWithoutAt.includes(text)) {
+        suggestions.push({
+          content: shortcutWithoutAt,
+          description: `Go to: ${shortcut.url} (${shortcut.shortcut})`
+        });
+      }
     });
     
-    // Filter suggestions based on input
-    const filteredSuggestions = text 
-      ? suggestions.filter(s => s.content.includes(text))
-      : suggestions;
-      
-    suggest(filteredSuggestions);
+    suggest(suggestions);
   });
 
-  // Monitor address bar navigation attempts specifically
+  // Monitor address bar navigation attempts
   chrome.webNavigation.onBeforeNavigate.addListener(function(details) {
-    // Only check the main frame navigations (address bar)
     if (details.frameId === 0) {
       checkAndRedirect(details.url, details.tabId);
     }
@@ -54,82 +66,85 @@ function setupListeners() {
   });
 }
 
-// Function to handle shortcut text and navigate accordingly
+// Fast shortcut handling using Map lookups
 function handleShortcut(text) {
-  let targetUrl = null;
-  
-  // First, check for exact matches (with or without @)
-  for (const shortcut of shortcuts) {
-    const shortcutText = shortcut.shortcut.slice(1);
-    if (text === shortcutText || `@${text}` === shortcut.shortcut) {
-      targetUrl = shortcut.url;
-      break;
-    }
-  }
-  
-  // If no exact match, check if text starts with any shortcut
-  if (!targetUrl) {
-    for (const shortcut of shortcuts) {
-      const shortcutText = shortcut.shortcut.slice(1);
-      if (text.startsWith(shortcutText)) {
-        targetUrl = shortcut.url;
-        break;
-      }
-    }
-  }
-  
-  // If we found a matching shortcut, navigate to its URL
-  if (targetUrl) {
-    chrome.tabs.update({ url: targetUrl });
+  // Check for exact match (without @)
+  if (shortcutsWithoutAtMap.has(text)) {
+    chrome.tabs.update({ url: shortcutsWithoutAtMap.get(text) });
     return true;
-  } else {
-    // Default to the first shortcut's URL if no match
-    const defaultShortcut = shortcuts.find(s => s.shortcut.slice(1) === defaultKeyword);
-    if (defaultShortcut) {
-      chrome.tabs.update({ url: defaultShortcut.url });
-      return true;
-    }
   }
+  
+  // Check for exact match (with @)
+  const withAt = `@${text}`;
+  if (shortcutsMap.has(withAt)) {
+    chrome.tabs.update({ url: shortcutsMap.get(withAt) });
+    return true;
+  }
+  
+  // Default case
+  if (defaultUrl) {
+    chrome.tabs.update({ url: defaultUrl });
+    return true;
+  }
+  
   return false;
 }
 
 // Check if the URL was entered in the address bar with a shortcut
 function checkAddressBarShortcut(url, tabId) {
-  // Check if this looks like a search or direct shortcut entry
-  // This helps identify address bar inputs rather than links clicked within pages
   if (!url) return false;
   
-  const urlObj = new URL(url);
-  
-  // Check for search engine URLs with our shortcut in the query
-  const isSearch = (
-    (urlObj.hostname.includes('google.com') && urlObj.pathname.includes('/search')) ||
-    (urlObj.hostname.includes('bing.com') && urlObj.pathname.includes('/search')) ||
-    urlObj.hostname.includes('duckduckgo.com')
-  );
-  
-  if (isSearch) {
-    const query = urlObj.searchParams.get('q') || '';
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
     
-    // Check if the search query contains any of our shortcuts
-    for (const shortcut of shortcuts) {
-      if (query.toLowerCase().includes(shortcut.shortcut)) {
-        chrome.tabs.update(tabId, { url: shortcut.url });
+    // Fast path: Check for search engine queries first
+    if ((hostname.includes('google.com') && urlObj.pathname.includes('/search')) ||
+        (hostname.includes('bing.com') && urlObj.pathname.includes('/search')) ||
+        hostname.includes('duckduckgo.com')) {
+      
+      const query = urlObj.searchParams.get('q');
+      if (query) {
+        const trimmedQuery = query.trim();
+        
+        // Direct map lookup is faster than looping
+        if (shortcutsMap.has(trimmedQuery)) {
+          chrome.tabs.update(tabId, { url: shortcutsMap.get(trimmedQuery) });
+          return true;
+        }
+      }
+    }
+    
+    // Check for @ alone (default case)
+    if (url === '@' || url === 'http://@/' || url === 'https://@/') {
+      chrome.tabs.update(tabId, { url: defaultUrl });
+      return true;
+    }
+    
+    // Handle direct entry with efficient pattern matching
+    const decodedUrl = decodeURIComponent(url.toLowerCase().trim());
+    
+    // Check direct matches with the shortcut map
+    if (shortcutsMap.has(decodedUrl)) {
+      chrome.tabs.update(tabId, { url: shortcutsMap.get(decodedUrl) });
+      return true;
+    }
+    
+    // Extract potential shortcut from URL path
+    // Optimized pattern matching for common URL formats
+    for (const [shortcut, targetUrl] of shortcutsMap.entries()) {
+      // Common URL patterns for shortcuts
+      if (decodedUrl === shortcut || 
+          decodedUrl === `http://${shortcut}/` ||
+          decodedUrl === `https://${shortcut}/` ||
+          decodedUrl.endsWith(`/${shortcut}`) ||
+          decodedUrl.endsWith(`/${shortcut}/`)) {
+        chrome.tabs.update(tabId, { url: targetUrl });
         return true;
       }
     }
-  }
-  
-  // Check for direct entry of shortcuts in the address bar
-  // (This might look like a navigation to "@vvc" as hostname)
-  const decodedUrl = decodeURIComponent(url.toLowerCase());
-  for (const shortcut of shortcuts) {
-    // Check if it's a direct entry (address starts with the shortcut)
-    // Or if it's part of the path/search parameters
-    if (decodedUrl.includes(shortcut.shortcut)) {
-      chrome.tabs.update(tabId, { url: shortcut.url });
-      return true;
-    }
+  } catch (e) {
+    console.error("URL parsing error:", e);
   }
   
   return false;
